@@ -54,14 +54,15 @@ steps:
 
 **After:**
 ```yaml
+defaults:
+  run:
+    working-directory: FE
 steps:
   - uses: actions/checkout@v4
   - name: Setup Node.js
     uses: actions/setup-node@v4
     with:
       node-version: '18'
-      cache: 'npm'
-      cache-dependency-path: FE/package-lock.json
   - name: Install dependencies
     run: npm ci
   - name: Build
@@ -70,7 +71,7 @@ steps:
 
 **Key Changes:**
 1. Added `defaults.run.working-directory: FE` - Set working directory
-2. Added Node.js setup with caching
+2. Added Node.js setup (without cache to avoid path issues)
 3. Added `npm ci` to install dependencies
 4. Added `entryPoint: FE` to Firebase deploy action
 
