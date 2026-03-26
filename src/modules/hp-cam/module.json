@@ -1,0 +1,7 @@
+{
+  "name": "hp-cam",
+  "version": "1.0.0",
+  "description": "HP Camera Pairing Module - Connect phone camera to PC browser",
+  "author": "Claude",
+  "routes": "./routes.ts"
+}

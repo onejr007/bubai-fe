@@ -1,0 +1,16 @@
+{
+  "name": "admin",
+  "agent": "Claude",
+  "version": "1.0.0",
+  "created": "2026-03-26",
+  "description": "Admin panel with login, dashboard, and management features",
+  "dependencies": [],
+  "routes": [
+    "/adm-lgn",
+    "/admin/dashboard",
+    "/admin/routes",
+    "/admin/admins",
+    "/admin/users",
+    "/admin/pages"
+  ]
+}

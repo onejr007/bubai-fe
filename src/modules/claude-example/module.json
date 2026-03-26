@@ -1,0 +1,9 @@
+{
+  "name": "example",
+  "agent": "Claude",
+  "version": "1.0.0",
+  "created": "2026-03-26",
+  "description": "Example module to demonstrate framework usage",
+  "dependencies": [],
+  "routes": ["/example", "/example/detail/:id"]
+}
