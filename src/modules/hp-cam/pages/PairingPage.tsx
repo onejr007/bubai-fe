@@ -6,7 +6,6 @@ import { hpCamSessionService } from '@/services/hpCamSession';
 
 export default function PairingPage() {
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
-  const [sessionId, setSessionId] = useState<string>('');
   const [pairingCode, setPairingCode] = useState<string>('');
   const [status, setStatus] = useState<string>('Generating QR Code...');
   const [isWaiting, setIsWaiting] = useState(false);
@@ -48,7 +47,6 @@ export default function PairingPage() {
       // Create session on backend
       const response = await hpCamSessionService.createSession(deviceId);
       
-      setSessionId(response.sessionId);
       setPairingCode(response.pairingCode);
       
       // Generate QR code with session ID

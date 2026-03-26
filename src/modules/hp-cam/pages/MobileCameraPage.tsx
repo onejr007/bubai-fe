@@ -9,7 +9,6 @@ export default function MobileCameraPage() {
   const [status, setStatus] = useState<string>('Initializing...');
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string>('');
-  const [pairingCode, setPairingCode] = useState<string>('');
   const streamRef = useRef<MediaStream | null>(null);
   const webrtcRef = useRef<WebRTCPeer | null>(null);
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -38,8 +37,6 @@ export default function MobileCameraPage() {
         setError('Session sudah berakhir');
         return;
       }
-      
-      setPairingCode(session.sessionId.substring(0, 6).toUpperCase());
       
       // Generate device ID for mobile
       const deviceId = `mobile-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
