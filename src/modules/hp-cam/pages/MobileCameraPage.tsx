@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from '@core/Router';
-import { sessionManager } from '../utils/sessionManager';
+import { hpCamSessionService } from '@/services/hpCamSession';
 import { WebRTCPeer } from '../utils/webrtcPeer';
 
 export default function MobileCameraPage() {
@@ -9,8 +9,10 @@ export default function MobileCameraPage() {
   const [status, setStatus] = useState<string>('Initializing...');
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string>('');
+  const [pairingCode, setPairingCode] = useState<string>('');
   const streamRef = useRef<MediaStream | null>(null);
   const webrtcRef = useRef<WebRTCPeer | null>(null);
+  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (!sessionId) {
@@ -18,30 +20,45 @@ export default function MobileCameraPage() {
       return;
     }
 
-    let session = sessionManager.getSession(sessionId);
-    
-    if (!session) {
-      session = {
-        sessionId: sessionId,
-        createdAt: Date.now(),
-        approved: false
-      };
-      sessionManager.saveSession(session);
-      setStatus('Session dibuat, meminta izin kamera...');
-    }
-
-    if (session.approved) {
-      setStatus('Session sudah approved, memulai streaming...');
-      startStreaming();
-    } else {
-      setStatus('Meminta izin kamera...');
-      requestCameraPermission();
-    }
+    initializeSession();
 
     return () => {
       cleanup();
     };
   }, [sessionId]);
+
+  const initializeSession = async () => {
+    try {
+      setStatus('Checking session...');
+      
+      // Check if session exists on backend
+      const session = await hpCamSessionService.getSessionStatus(sessionId);
+      
+      if (session.status === 'ended') {
+        setError('Session sudah berakhir');
+        return;
+      }
+      
+      setPairingCode(session.sessionId.substring(0, 6).toUpperCase());
+      
+      // Generate device ID for mobile
+      const deviceId = `mobile-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Join session (pair with PC)
+      setStatus('Pairing with PC...');
+      await hpCamSessionService.joinSession(session.sessionId, deviceId);
+      
+      setStatus('Paired! Requesting camera...');
+      
+      // Request camera permission
+      await requestCameraPermission();
+      
+    } catch (error: any) {
+      console.error('Failed to initialize session:', error);
+      setError(error.message || 'Failed to connect to session');
+      setStatus('Error');
+    }
+  };
 
   const requestCameraPermission = async () => {
     setStatus('Meminta izin kamera...');
@@ -61,14 +78,15 @@ export default function MobileCameraPage() {
       });
 
       streamRef.current = stream;
-
-      const deviceInfo = navigator.userAgent;
-      sessionManager.approveSession(sessionId!, deviceInfo);
       
       setStatus('Kamera disetujui, memulai streaming ke PC...');
       setIsStreaming(true);
       
+      // Start WebRTC with backend signaling
       await startWebRTC(stream);
+      
+      // Start heartbeat to keep session alive
+      startHeartbeat();
 
     } catch (err: any) {
       let errorMessage = 'Gagal mengakses kamera';
@@ -92,6 +110,19 @@ export default function MobileCameraPage() {
     }
   };
 
+  const startHeartbeat = () => {
+    // Send heartbeat every 3 seconds to keep session alive
+    heartbeatIntervalRef.current = setInterval(async () => {
+      try {
+        await hpCamSessionService.getSessionStatus(sessionId);
+      } catch (error) {
+        console.error('Heartbeat failed:', error);
+        // If session not found, stop streaming
+        stopStreaming();
+      }
+    }, 3000);
+  };
+
   const retryWithLowerConstraints = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -100,25 +131,18 @@ export default function MobileCameraPage() {
       });
 
       streamRef.current = stream;
-
-      const deviceInfo = navigator.userAgent;
-      sessionManager.approveSession(sessionId!, deviceInfo);
       
       setStatus('Kamera disetujui (resolusi default), streaming ke PC...');
       setIsStreaming(true);
       setError('');
       
       await startWebRTC(stream);
+      startHeartbeat();
 
     } catch (err: any) {
       setError(`Gagal mengakses kamera: ${err.message || 'Unknown error'}`);
       setStatus('Error');
     }
-  };
-
-  const startStreaming = async () => {
-    setStatus('Memulai streaming...');
-    await requestCameraPermission();
   };
 
   const startWebRTC = async (stream: MediaStream) => {
@@ -148,21 +172,36 @@ export default function MobileCameraPage() {
   };
 
   const cleanup = () => {
+    // Stop heartbeat
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
+
+    // Stop camera stream
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
 
+    // Cleanup WebRTC
     if (webrtcRef.current) {
       webrtcRef.current.cleanup();
       webrtcRef.current = null;
     }
   };
 
-  const stopStreaming = () => {
+  const stopStreaming = async () => {
     cleanup();
     setIsStreaming(false);
     setStatus('Streaming dihentikan');
+    
+    // End session on backend
+    try {
+      await hpCamSessionService.endSession(sessionId);
+    } catch (error) {
+      console.error('Failed to end session:', error);
+    }
   };
 
   const S = {

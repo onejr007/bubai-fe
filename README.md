@@ -1,97 +1,402 @@
-# Frontend - AI Agent Framework
+# Frontend Documentation
 
-## Tech Stack
+> **v2.0.1 - React + TypeScript + Vite + TailwindCSS**
+
+**Last Updated**: 2024-03-26
+
+**⚠️ AI Agent**: 
+- Update file ini untuk fitur frontend baru
+- Jangan buat file dokumentasi terpisah
+- Gunakan versioning (v2.1, v2.2, dst)
+- Update CHANGELOG.md
+
+---
+
+## 📋 Daftar Isi
+
+- [Overview](#overview)
+- [Quick Start](#quick-start)
+- [Project Structure](#project-structure)
+- [Development Guide](#development-guide)
+- [Component Library](#component-library)
+- [Deployment](#deployment)
+- [Troubleshooting](#troubleshooting)
+
+---
+
+## 🎯 Overview
+
+Frontend modern dengan:
+- ✅ React 18 + TypeScript
+- ✅ Vite (Fast HMR)
+- ✅ TailwindCSS v3
+- ✅ React Router v6
+- ✅ Axios untuk API calls
+- ✅ 2 Template: Modern & Admin
+
+### Tech Stack
 - React 18
-- TypeScript 5
-- Vite 5 (Hot Reload)
-- Custom SPA Router
+- TypeScript
+- Vite
+- TailwindCSS v3
+- React Router v6
+- Axios
 
-## Quick Start
+---
 
-### Install
+## 🚀 Quick Start
+
+### 1. Installation
 ```bash
 npm install
 ```
 
-### Development
+### 2. Environment Setup
+```bash
+cp .env.example .env.development
+```
+
+Edit `.env.development`:
+```env
+VITE_API_URL=http://localhost:3000
+```
+
+### 3. Development
 ```bash
 npm run dev
 ```
 
-Server: `http://localhost:3000`
-
-### Build
+### 4. Build
 ```bash
 npm run build
 ```
 
-### Preview Production
+### 5. Preview Production Build
 ```bash
 npm run preview
 ```
 
-## Project Structure
+### 6. Verify
+- App: http://localhost:5173
+- Modern Template: http://localhost:5173/modern
+- Admin Template: http://localhost:5173/admin
+
+---
+
+## 📁 Project Structure
 
 ```
 src/
-├── core/           # Framework core (Router)
-├── components/     # Shared components
-│   └── layouts/    # Layout components
-├── modules/        # AI Agent modules
-│   └── claude-example/  # Example module
-├── pages/          # Global pages
-├── utils/          # Shared utilities
-├── styles/         # Global styles
-├── routes.ts       # Route registry
-├── App.tsx         # Root component
-└── main.tsx        # Entry point
+├── components/              # Reusable components
+│   ├── modern/             # Modern template components
+│   │   ├── Navbar.tsx
+│   │   ├── Hero.tsx
+│   │   ├── FeatureCard.tsx
+│   │   └── PricingCard.tsx
+│   │
+│   └── admin/              # Admin template components
+│       ├── AdminLayout.tsx
+│       ├── Button.tsx
+│       ├── Card.tsx
+│       ├── DataTable.tsx
+│       ├── FormField.tsx
+│       └── Modal.tsx
+│
+├── pages/                   # Page components
+│   ├── modern/             # Modern template pages
+│   │   ├── HomePage.tsx
+│   │   ├── AboutPage.tsx
+│   │   └── ContactPage.tsx
+│   │
+│   └── admin/              # Admin template pages
+│       ├── DashboardPage.tsx
+│       ├── UsersPage.tsx
+│       └── SettingsPage.tsx
+│
+├── services/               # API services
+│   └── api.ts             # Axios configuration
+│
+├── App.tsx                # Main app component
+├── main.tsx              # Entry point
+└── index.css             # Global styles + Tailwind
 ```
 
-## Path Aliases
+---
+
+## 💻 Development Guide
+
+### Creating New Page
+
+1. **Create Page Component**:
+```typescript
+// src/pages/NewPage.tsx
+export default function NewPage() {
+  return (
+    <div className="container mx-auto px-4 py-8">
+      <h1 className="text-3xl font-bold">New Page</h1>
+    </div>
+  );
+}
+```
+
+2. **Add Route**:
+```typescript
+// src/App.tsx
+import NewPage from './pages/NewPage';
+
+<Route path="/new" element={<NewPage />} />
+```
+
+### API Integration
 
 ```typescript
-@/              → src/
-@components/    → src/components/
-@pages/         → src/pages/
-@modules/       → src/modules/
-@core/          → src/core/
-@utils/         → src/utils/
+// src/services/api.ts
+import axios from 'axios';
+
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL
+});
+
+export const userService = {
+  getAll: () => api.get('/api/users'),
+  getById: (id: string) => api.get(`/api/users/${id}`),
+  create: (data: any) => api.post('/api/users', data)
+};
 ```
 
-## Creating a Module
+### Using API in Component
 
-See: `../AI_DOCS/MODULE_TEMPLATE.md`
+```typescript
+import { useState, useEffect } from 'react';
+import { userService } from '../services/api';
 
-Quick steps:
-1. Create folder in `src/modules/[agent-name]-[feature]/`
-2. Create `module.json`, `routes.ts`, pages
-3. Register routes in `src/routes.ts`
-4. Document in `../AI_DOCS/AGENTS/[agent-name]/`
+export default function UsersPage() {
+  const [users, setUsers] = useState([]);
 
-## Example Module
+  useEffect(() => {
+    userService.getAll()
+      .then(res => setUsers(res.data))
+      .catch(err => console.error(err));
+  }, []);
 
-Check `src/modules/claude-example/` for a complete example.
+  return (
+    <div>
+      {users.map(user => (
+        <div key={user.id}>{user.name}</div>
+      ))}
+    </div>
+  );
+}
+```
 
-## Hot Reload
+---
 
-Vite automatically reloads on file changes. No manual refresh needed.
+## 🎨 Component Library
 
-## TypeScript
+### Modern Template
 
-Strict mode enabled. All files must be properly typed.
+#### Navbar
+```tsx
+import { Navbar } from '../components/modern';
 
-## Routing
+<Navbar />
+```
 
-Custom SPA router with:
-- No page reload on navigation
-- Dynamic routes with params
-- Layout support
-- 404 handling
+#### Hero Section
+```tsx
+import { Hero } from '../components/modern';
 
-See: `../AI_DOCS/ROUTING_GUIDE.md`
+<Hero 
+  title="Welcome"
+  subtitle="Get started today"
+/>
+```
 
-## Documentation
+#### Feature Card
+```tsx
+import { FeatureCard } from '../components/modern';
 
-Full documentation in `../AI_DOCS/`
+<FeatureCard
+  icon={<Icon />}
+  title="Feature"
+  description="Description"
+/>
+```
 
-Start with: `../AI_DOCS/INDEX.md`
+### Admin Template
+
+#### Button
+```tsx
+import { Button } from '../components/admin';
+
+<Button variant="primary" onClick={handleClick}>
+  Click Me
+</Button>
+```
+
+#### Card
+```tsx
+import { Card } from '../components/admin';
+
+<Card title="Card Title">
+  Content here
+</Card>
+```
+
+#### DataTable
+```tsx
+import { DataTable } from '../components/admin';
+
+<DataTable
+  columns={columns}
+  data={data}
+  onEdit={handleEdit}
+  onDelete={handleDelete}
+/>
+```
+
+#### Modal
+```tsx
+import { Modal } from '../components/admin';
+
+<Modal
+  isOpen={isOpen}
+  onClose={handleClose}
+  title="Modal Title"
+>
+  Modal content
+</Modal>
+```
+
+**Detailed Guide**: [../AI_DOCS/COMPONENT_GUIDE.md](../AI_DOCS/COMPONENT_GUIDE.md)
+
+---
+
+## 🚀 Deployment
+
+### Firebase Hosting (Recommended)
+
+1. **Install Firebase CLI**:
+```bash
+npm install -g firebase-tools
+```
+
+2. **Login & Initialize**:
+```bash
+firebase login
+firebase init hosting
+```
+
+3. **Configure** (`firebase.json`):
+```json
+{
+  "hosting": {
+    "public": "dist",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}
+```
+
+4. **Deploy**:
+```bash
+npm run build
+firebase deploy
+```
+
+**Detailed Guide**: [FIREBASE_DEPLOYMENT.md](./FIREBASE_DEPLOYMENT.md)
+
+### Vercel
+
+```bash
+npm install -g vercel
+vercel
+```
+
+### Netlify
+
+```bash
+npm install -g netlify-cli
+npm run build
+netlify deploy --prod --dir=dist
+```
+
+---
+
+## 🐛 Troubleshooting
+
+### Vite Server Won't Start
+```bash
+rm -rf node_modules package-lock.json
+npm install
+npm run dev
+```
+
+### TailwindCSS Not Working
+
+1. Check `tailwind.config.js`:
+```js
+export default {
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+}
+```
+
+2. Verify `src/index.css`:
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+```
+
+3. Restart dev server
+
+### Environment Variables Not Working
+
+1. File name must be `.env.development` (not `.env`)
+2. Variables must start with `VITE_`
+3. Restart dev server after changes
+
+### Build Failed
+
+```bash
+# Clean install
+rm -rf node_modules package-lock.json dist
+npm install
+npm run build
+```
+
+### CORS Error
+
+Update backend `.env`:
+```env
+CORS_ORIGIN=http://localhost:5173
+```
+
+**More Solutions**: [../docs/TROUBLESHOOTING.md](../docs/TROUBLESHOOTING.md)
+
+---
+
+## 📚 Additional Resources
+
+- **[Component Guide](../AI_DOCS/COMPONENT_GUIDE.md)** - Component documentation
+- **[Modern Template Guide](../AI_DOCS/MODERN_TEMPLATE_GUIDE.md)** - Modern template usage
+- **[Admin Template Guide](../AI_DOCS/ADMIN_TEMPLATE_GUIDE.md)** - Admin template usage
+- **[Routing Guide](../AI_DOCS/ROUTING_GUIDE.md)** - React Router setup
+
+---
+
+**Version**: 2.0.2
+**Last Updated**: 2024-03-26
+**Need Help?** Check [Troubleshooting](#troubleshooting) atau [Main Documentation](../README.md)

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from '@core/Router';
-import { sessionManager } from '../utils/sessionManager';
+import { hpCamSessionService } from '@/services/hpCamSession';
 import { WebRTCPeer } from '../utils/webrtcPeer';
 
 export default function ViewerPage() {
@@ -12,11 +12,13 @@ export default function ViewerPage() {
   const [hasVideo, setHasVideo] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const webrtcRef = useRef<WebRTCPeer | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const sessionCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (!sessionId) {
@@ -24,44 +26,66 @@ export default function ViewerPage() {
       return;
     }
 
-    let session = sessionManager.getSession(sessionId);
-    
-    if (!session) {
-      session = {
-        sessionId: sessionId,
-        createdAt: Date.now(),
-        approved: false
-      };
-      sessionManager.saveSession(session);
-      setStatus('Session dibuat, menunggu HP...');
-    }
-
-    if (!session.approved) {
-      setStatus('Menunggu HP scan QR dan approve camera...');
-      checkApproval();
-    } else {
-      setStatus('HP sudah approved, menunggu koneksi...');
-      initializeWebRTC();
-    }
+    initializeViewer();
 
     return () => {
       cleanup();
     };
   }, [sessionId]);
 
-  const checkApproval = () => {
-    const interval = setInterval(() => {
-      const session = sessionManager.getSession(sessionId!);
-      if (session?.approved) {
-        clearInterval(interval);
-        setStatus('HP approved! Memulai koneksi...');
-        setTimeout(() => {
-          initializeWebRTC();
-        }, 2000);
+  const initializeViewer = async () => {
+    try {
+      setStatus('Checking session...');
+      
+      // Check session status on backend
+      const session = await hpCamSessionService.getSessionStatus(sessionId);
+      
+      if (session.status === 'ended') {
+        setStatus('Session ended');
+        setTimeout(() => navigate('/hp-cam'), 3000);
+        return;
       }
-    }, 1000);
+      
+      if (session.status === 'paired' && session.hasViewer) {
+        setStatus('Mobile paired! Initializing connection...');
+        await initializeWebRTC();
+      } else {
+        setStatus('Waiting for mobile to scan QR...');
+        startSessionPolling();
+      }
+      
+    } catch (error: any) {
+      console.error('Failed to initialize viewer:', error);
+      setStatus(`Error: ${error.message || 'Failed to connect'}`);
+    }
+  };
 
-    setTimeout(() => clearInterval(interval), 300000);
+  const startSessionPolling = () => {
+    // Poll backend every 2 seconds to check if mobile has paired
+    sessionCheckIntervalRef.current = setInterval(async () => {
+      try {
+        const session = await hpCamSessionService.getSessionStatus(sessionId);
+        
+        if (session.status === 'paired' && session.hasViewer) {
+          if (sessionCheckIntervalRef.current) {
+            clearInterval(sessionCheckIntervalRef.current);
+            sessionCheckIntervalRef.current = null;
+          }
+          setStatus('Mobile paired! Initializing connection...');
+          await initializeWebRTC();
+        }
+      } catch (error: any) {
+        console.error('Session polling error:', error);
+        if (error.message?.includes('not found') || error.message?.includes('expired')) {
+          if (sessionCheckIntervalRef.current) {
+            clearInterval(sessionCheckIntervalRef.current);
+            sessionCheckIntervalRef.current = null;
+          }
+          setStatus('Session expired');
+          setTimeout(() => navigate('/hp-cam'), 3000);
+        }
+      }
+    }, 2000);
   };
 
   const initializeWebRTC = async () => {
@@ -82,12 +106,14 @@ export default function ViewerPage() {
           if (state === 'connected') {
             setIsConnected(true);
             setStatus('Terhubung dengan HP');
+            startHeartbeat();
           } else if (state === 'connecting') {
             setStatus('Menghubungkan...');
           } else if (state === 'disconnected' || state === 'failed') {
             setIsConnected(false);
             setHasVideo(false);
             setStatus('Koneksi terputus');
+            stopHeartbeat();
           }
         }
       );
@@ -100,24 +126,69 @@ export default function ViewerPage() {
     }
   };
 
+  const startHeartbeat = () => {
+    // Check session status every 5 seconds to detect if mobile disconnected
+    heartbeatIntervalRef.current = setInterval(async () => {
+      try {
+        const session = await hpCamSessionService.getSessionStatus(sessionId);
+        
+        if (session.status === 'ended') {
+          stopStreaming();
+        }
+      } catch (error) {
+        console.error('Heartbeat failed:', error);
+        // If session not found, stop streaming
+        stopStreaming();
+      }
+    }, 5000);
+  };
+
+  const stopHeartbeat = () => {
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
+  };
+
   const cleanup = () => {
+    // Stop heartbeat
+    stopHeartbeat();
+    
+    // Stop session polling
+    if (sessionCheckIntervalRef.current) {
+      clearInterval(sessionCheckIntervalRef.current);
+      sessionCheckIntervalRef.current = null;
+    }
+    
+    // Stop recording if active
     if (isRecording) {
       stopRecording();
     }
+    
+    // Cleanup WebRTC
     if (webrtcRef.current) {
       webrtcRef.current.cleanup();
       webrtcRef.current = null;
     }
+    
+    // Clear video
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
   };
 
-  const stopStreaming = () => {
+  const stopStreaming = async () => {
     cleanup();
     setStatus('Streaming dihentikan');
     setIsConnected(false);
     setHasVideo(false);
+    
+    // End session on backend
+    try {
+      await hpCamSessionService.endSession(sessionId);
+    } catch (error) {
+      console.error('Failed to end session:', error);
+    }
     
     setTimeout(() => {
       navigate('/hp-cam');

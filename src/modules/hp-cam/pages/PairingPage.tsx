@@ -1,16 +1,17 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from '@core/Router';
 import QRCode from 'qrcode';
-import { sessionManager } from '../utils/sessionManager';
 import { deviceDetection } from '../utils/deviceDetection';
+import { hpCamSessionService } from '@/services/hpCamSession';
 
 export default function PairingPage() {
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
   const [sessionId, setSessionId] = useState<string>('');
+  const [pairingCode, setPairingCode] = useState<string>('');
   const [status, setStatus] = useState<string>('Generating QR Code...');
   const [isWaiting, setIsWaiting] = useState(false);
   const [deviceType, setDeviceType] = useState<'mobile' | 'tablet' | 'desktop'>('desktop');
-  const [timeRemaining, setTimeRemaining] = useState<number>(180);
+  const [timeRemaining, setTimeRemaining] = useState<number>(300);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -29,7 +30,7 @@ export default function PairingPage() {
       setTimeRemaining(prev => {
         if (prev <= 1) {
           regenerateQRCode();
-          return 180;
+          return 300;
         }
         return prev - 1;
       });
@@ -38,24 +39,37 @@ export default function PairingPage() {
   }, [isWaiting, timeRemaining]);
 
   const initializePairing = async () => {
-    const newSessionId = sessionManager.generateSessionId();
-    setSessionId(newSessionId);
-    sessionManager.saveSession({
-      sessionId: newSessionId,
-      createdAt: Date.now(),
-      approved: false
-    });
-    const mobileUrl = `${window.location.origin}/hp-cam/mobile/${newSessionId}`;
-    const qrUrl = await QRCode.toDataURL(mobileUrl, {
-      width: 400,
-      margin: 2,
-      color: { dark: '#1e293b', light: '#ffffff' }
-    });
-    setQrCodeUrl(qrUrl);
-    setStatus('Ready to scan');
-    setIsWaiting(true);
-    setTimeRemaining(180);
-    checkApprovalStatus(newSessionId);
+    try {
+      setStatus('Creating session on server...');
+      
+      // Generate device ID for PC
+      const deviceId = `pc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Create session on backend
+      const response = await hpCamSessionService.createSession(deviceId);
+      
+      setSessionId(response.sessionId);
+      setPairingCode(response.pairingCode);
+      
+      // Generate QR code with session ID
+      const mobileUrl = `${window.location.origin}/hp-cam/mobile/${response.sessionId}`;
+      const qrUrl = await QRCode.toDataURL(mobileUrl, {
+        width: 400,
+        margin: 2,
+        color: { dark: '#1e293b', light: '#ffffff' }
+      });
+      
+      setQrCodeUrl(qrUrl);
+      setStatus('Ready to scan');
+      setIsWaiting(true);
+      setTimeRemaining(300);
+      
+      // Start polling backend for session status
+      checkSessionStatus(response.sessionId);
+    } catch (error: any) {
+      console.error('Failed to create session:', error);
+      setStatus(`Error: ${error.message || 'Failed to create session'}`);
+    }
   };
 
   const regenerateQRCode = async () => {
@@ -63,35 +77,30 @@ export default function PairingPage() {
     await initializePairing();
   };
 
-  const checkApprovalStatus = (sessionId: string) => {
+  const checkSessionStatus = (sessionId: string) => {
     let checkCount = 0;
     const maxChecks = 300; // 5 minutes (300 seconds)
     
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
       checkCount++;
       
-      // Check 1: Session approved in localStorage (same device testing)
-      const session = sessionManager.getSession(sessionId);
-      if (session?.approved) {
-        clearInterval(interval);
-        setStatus('Mobile connected! Redirecting...');
-        setTimeout(() => navigate(`/hp-cam/viewer/${sessionId}`), 1500);
-        return;
-      }
-      
-      // Check 2: WebRTC offer from mobile (cross-device signaling)
-      const mobileSignal = localStorage.getItem(`webrtc_signal_${sessionId}_mobile`);
-      if (mobileSignal) {
-        try {
-          const signalData = JSON.parse(mobileSignal);
-          if (signalData.type === 'offer' && signalData.data?.offer) {
-            clearInterval(interval);
-            setStatus('Mobile detected! Redirecting to viewer...');
-            setTimeout(() => navigate(`/hp-cam/viewer/${sessionId}`), 1500);
-            return;
-          }
-        } catch (e) {
-          // Ignore parse errors
+      try {
+        // Poll backend for session status
+        const session = await hpCamSessionService.getSessionStatus(sessionId);
+        
+        // Check if mobile has paired
+        if (session.status === 'paired' && session.hasViewer) {
+          clearInterval(interval);
+          setStatus('Mobile connected! Redirecting...');
+          setTimeout(() => navigate(`/hp-cam/viewer/${sessionId}`), 1500);
+          return;
+        }
+      } catch (error: any) {
+        console.error('Failed to check session status:', error);
+        // If session not found or expired, stop polling
+        if (error.message?.includes('not found') || error.message?.includes('expired')) {
+          clearInterval(interval);
+          setStatus('Session expired - Please refresh');
         }
       }
       
@@ -178,7 +187,7 @@ export default function PairingPage() {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   {[
-                    { icon: '🔑', title: 'Session ID', value: sessionId || 'Generating...', bg: '#dbeafe', color: '#1e40af' },
+                    { icon: '🔑', title: 'Pairing Code', value: pairingCode || 'Generating...', bg: '#dbeafe', color: '#1e40af' },
                     { icon: '⏱️', title: 'QR Expires In', value: `${formatTime(timeRemaining)} - Auto refresh`, bg: '#d1fae5', color: '#065f46' },
                     { icon: '✨', title: 'Status', value: status, bg: '#e9d5ff', color: '#581c87' }
                   ].map((card, i) => (
