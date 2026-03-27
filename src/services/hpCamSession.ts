@@ -62,13 +62,10 @@ class HpCamSessionService {
   }
 
   /**
-   * Join session with pairing code (viewer)
+   * Join session with pairing code or session ID
    */
-  async joinSession(pairingCode: string, deviceId: string): Promise<JoinSessionResponse> {
-    const response = await apiClient.post<JoinSessionResponse>(`${this.baseUrl}/join`, {
-      pairingCode,
-      deviceId,
-    });
+  async joinSession(params: { pairingCode?: string; sessionId?: string; deviceId: string }): Promise<JoinSessionResponse> {
+    const response = await apiClient.post<JoinSessionResponse>(`${this.baseUrl}/join`, params);
     return response;
   }
 
@@ -102,13 +99,9 @@ class HpCamSessionService {
    */
   async getSignals(
     sessionId: string,
-    forDevice: 'mobile' | 'viewer',
-    since?: Date
+    forDevice: 'mobile' | 'viewer'
   ): Promise<WebRTCSignal[]> {
-    let url = `${this.baseUrl}/signal/${sessionId}?forDevice=${forDevice}`;
-    if (since) {
-      url += `&since=${since.toISOString()}`;
-    }
+    const url = `${this.baseUrl}/signal/${sessionId}?forDevice=${forDevice}&_t=${Date.now()}`;
 
     const response = await apiClient.get<SignalsResponse>(url);
     return response.signals;
@@ -130,20 +123,23 @@ class HpCamSessionService {
   startSignalPolling(
     sessionId: string,
     forDevice: 'mobile' | 'viewer',
-    onSignal: (signal: WebRTCSignal) => void,
+    onSignal: (signal: WebRTCSignal) => Promise<void> | void,
     onError?: (error: Error) => void,
     intervalMs: number = 1000
   ): () => void {
-    let lastCheck = new Date();
     let isActive = true;
     
     const poll = async () => {
       if (!isActive) return;
 
       try {
-        const signals = await this.getSignals(sessionId, forDevice, lastCheck);
-        signals.forEach(onSignal);
-        lastCheck = new Date();
+        const signals = await this.getSignals(sessionId, forDevice);
+        
+        // Sequential processing to avoid WebRTC race conditions
+        for (const signal of signals) {
+          if (!isActive) break;
+          await onSignal(signal);
+        }
       } catch (error) {
         console.error('Failed to poll signals:', error);
         if (onError) {

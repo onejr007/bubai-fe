@@ -42,12 +42,16 @@ export function useHpCamSession(options: UseHpCamSessionOptions) {
     }
   }, [deviceId, onError]);
 
-  // Join session (viewer)
-  const joinSession = useCallback(async (pairingCode: string) => {
+  // Join session (viewer/mobile)
+  const joinSession = useCallback(async (params: string | { sessionId?: string; pairingCode?: string }) => {
     setLoading(true);
     setError(null);
     try {
-      const joinedSession = await hpCamSessionService.joinSession(pairingCode, deviceId);
+      const joinParams = typeof params === 'string' 
+        ? { pairingCode: params, deviceId } 
+        : { ...params, deviceId };
+        
+      const joinedSession = await hpCamSessionService.joinSession(joinParams);
       setSession(joinedSession);
       return joinedSession;
     } catch (err: any) {

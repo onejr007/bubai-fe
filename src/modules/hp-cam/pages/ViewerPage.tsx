@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from '@core/Router';
 import { hpCamSessionService } from '@/services/hpCamSession';
-import { WebRTCPeer } from '../utils/webrtcPeer';
+import { EnhancedWebRTCPeer } from '../utils/enhancedWebrtcPeer';
 
 export default function ViewerPage() {
   const params = useParams();
@@ -10,10 +10,11 @@ export default function ViewerPage() {
   const [status, setStatus] = useState<string>('Menunggu HP...');
   const [isConnected, setIsConnected] = useState(false);
   const [hasVideo, setHasVideo] = useState(false);
+  const [videoQuality, setVideoQuality] = useState<string>('');
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const webrtcRef = useRef<WebRTCPeer | null>(null);
+  const webrtcRef = useRef<EnhancedWebRTCPeer | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -92,36 +93,51 @@ export default function ViewerPage() {
     try {
       setStatus('Memulai koneksi WebRTC...');
       
-      webrtcRef.current = new WebRTCPeer(
+      console.log('🚀 Initializing Enhanced WebRTC for viewer...');
+      
+      webrtcRef.current = new EnhancedWebRTCPeer(
         sessionId!,
-        false,
+        false, // isViewer (not mobile)
         (stream) => {
+          console.log('📡 Received stream from mobile');
           if (videoRef.current) {
             videoRef.current.srcObject = stream;
             setHasVideo(true);
-            setStatus('Video streaming dari HP');
+            setStatus('✅ Video streaming dari HP');
+            
+            // Get video quality info
+            const videoTrack = stream.getVideoTracks()[0];
+            if (videoTrack) {
+              const settings = videoTrack.getSettings();
+              const quality = `${settings.width}x${settings.height} @ ${settings.frameRate}fps`;
+              setVideoQuality(quality);
+              console.log('📊 Video quality:', quality);
+            }
           }
         },
         (state) => {
+          console.log('🔗 Connection state changed:', state);
           if (state === 'connected') {
             setIsConnected(true);
-            setStatus('Terhubung dengan HP');
+            setStatus('✅ Terhubung dengan HP');
             startHeartbeat();
           } else if (state === 'connecting') {
-            setStatus('Menghubungkan...');
+            setStatus('🔄 Menghubungkan...');
           } else if (state === 'disconnected' || state === 'failed') {
             setIsConnected(false);
             setHasVideo(false);
-            setStatus('Koneksi terputus');
+            setStatus('⚠️ Koneksi terputus');
+            setVideoQuality('');
             stopHeartbeat();
           }
         }
       );
 
       await webrtcRef.current.initialize();
-      setStatus('Menunggu stream dari HP...');
+      setStatus('⏳ Menunggu stream dari HP...');
       
     } catch (err: any) {
+      console.error('❌ WebRTC initialization failed:', err);
       setStatus(`Error: ${err.message}`);
     }
   };
@@ -190,9 +206,7 @@ export default function ViewerPage() {
       console.error('Failed to end session:', error);
     }
     
-    setTimeout(() => {
-      navigate('/hp-cam');
-    }, 2000);
+    navigate('/hp-cam');
   };
 
   const takeScreenshot = () => {
@@ -318,6 +332,7 @@ export default function ViewerPage() {
             ref={videoRef}
             autoPlay
             playsInline
+            muted
             style={S.video}
           />
           
@@ -427,8 +442,8 @@ export default function ViewerPage() {
               </div>
               <h3 style={{ color: 'white', fontSize: '0.875rem', fontWeight: '700', margin: 0 }}>Quality</h3>
             </div>
-            <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.875rem', margin: 0 }}>
-              {hasVideo ? 'HD' : 'N/A'}
+            <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.875rem', margin: 0, fontFamily: 'monospace' }}>
+              {videoQuality || 'N/A'}
             </p>
           </div>
 

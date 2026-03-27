@@ -10,6 +10,8 @@ export class WebRTCPeer {
   private onConnectionStateChange?: (state: string) => void;
   private signalPollingCleanup?: () => void;
 
+  private iceCandidateQueue: RTCIceCandidateInit[] = [];
+
   constructor(
     sessionId: string,
     isMobile: boolean,
@@ -24,6 +26,7 @@ export class WebRTCPeer {
 
   async initialize(localStream?: MediaStream) {
     this.localStream = localStream || null;
+    this.iceCandidateQueue = [];
 
     // Create peer connection
     this.peerConnection = new RTCPeerConnection({
@@ -43,11 +46,13 @@ export class WebRTCPeer {
 
     // Handle remote stream (PC side)
     this.peerConnection.ontrack = (event) => {
-      if (event.streams && event.streams[0]) {
-        console.log('✅ Received remote stream');
-        if (this.onRemoteStream) {
-          this.onRemoteStream(event.streams[0]);
-        }
+      console.log('📡 Track event received:', event.track.kind);
+      
+      const stream = event.streams[0] || new MediaStream([event.track]);
+      
+      console.log('✅ Remote stream processed');
+      if (this.onRemoteStream) {
+        this.onRemoteStream(stream);
       }
     };
 
@@ -95,6 +100,22 @@ export class WebRTCPeer {
     );
   }
 
+  private async processQueuedIceCandidates() {
+    if (!this.peerConnection || !this.peerConnection.remoteDescription) return;
+
+    while (this.iceCandidateQueue.length > 0) {
+      const candidate = this.iceCandidateQueue.shift();
+      if (candidate) {
+        try {
+          console.log('📥 Adding queued ICE candidate');
+          await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (error) {
+          console.error('Error adding queued ICE candidate:', error);
+        }
+      }
+    }
+  }
+
   private async handleSignal(signal: WebRTCSignal) {
     if (!this.peerConnection) return;
 
@@ -103,11 +124,19 @@ export class WebRTCPeer {
         case 'offer':
           // PC receives offer from mobile
           if (!this.isMobile) {
+            if (this.peerConnection.signalingState !== 'stable') {
+              console.warn('⚠️ Received offer when signaling state is not stable, ignoring');
+              return;
+            }
+
             console.log('📥 Received offer from mobile');
             await this.peerConnection.setRemoteDescription(
               new RTCSessionDescription(signal.data.offer)
             );
             
+            // Drain ICE candidate queue
+            await this.processQueuedIceCandidates();
+
             // Create and send answer
             const answer = await this.peerConnection.createAnswer();
             await this.peerConnection.setLocalDescription(answer);
@@ -125,20 +154,33 @@ export class WebRTCPeer {
         case 'answer':
           // Mobile receives answer from PC
           if (this.isMobile) {
+            if (this.peerConnection.signalingState !== 'have-local-offer') {
+              console.warn('⚠️ Received answer when state is not have-local-offer, ignoring');
+              return;
+            }
+
             console.log('📥 Received answer from PC');
             await this.peerConnection.setRemoteDescription(
               new RTCSessionDescription(signal.data.answer)
             );
+
+            // Drain ICE candidate queue
+            await this.processQueuedIceCandidates();
           }
           break;
 
         case 'ice-candidate':
           // Both sides receive ICE candidates
           if (signal.data.candidate) {
-            console.log('📥 Received ICE candidate');
-            await this.peerConnection.addIceCandidate(
-              new RTCIceCandidate(signal.data.candidate)
-            );
+            if (this.peerConnection.remoteDescription) {
+              console.log('📥 Received ICE candidate');
+              await this.peerConnection.addIceCandidate(
+                new RTCIceCandidate(signal.data.candidate)
+              );
+            } else {
+              console.log('⏳ Queued ICE candidate (remote description not set)');
+              this.iceCandidateQueue.push(signal.data.candidate);
+            }
           }
           break;
       }

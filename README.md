@@ -1,6 +1,6 @@
 # Frontend Documentation
 
-> **v2.0.1 - React + TypeScript + Vite + TailwindCSS**
+> **v2.1 - React + TypeScript + Vite + TailwindCSS**
 
 **Last Updated**: 2024-03-26
 
@@ -268,7 +268,7 @@ import { Modal } from '../components/admin';
 </Modal>
 ```
 
-**Detailed Guide**: [../AI_DOCS/COMPONENT_GUIDE.md](../AI_DOCS/COMPONENT_GUIDE.md)
+**Detailed Guide**: [../DEVELOPER_GUIDE.md](../DEVELOPER_GUIDE.md)
 
 ---
 
@@ -384,19 +384,18 @@ Update backend `.env`:
 CORS_ORIGIN=http://localhost:5173
 ```
 
-**More Solutions**: [../docs/TROUBLESHOOTING.md](../docs/TROUBLESHOOTING.md)
+**More Solutions**: [../TROUBLESHOOTING.md](../TROUBLESHOOTING.md)
 
 ---
 
 ## 📚 Additional Resources
 
-- **[Component Guide](../AI_DOCS/COMPONENT_GUIDE.md)** - Component documentation
-- **[Modern Template Guide](../AI_DOCS/MODERN_TEMPLATE_GUIDE.md)** - Modern template usage
-- **[Admin Template Guide](../AI_DOCS/ADMIN_TEMPLATE_GUIDE.md)** - Admin template usage
-- **[Routing Guide](../AI_DOCS/ROUTING_GUIDE.md)** - React Router setup
+- **[Developer Guide](../DEVELOPER_GUIDE.md)** - Komponen & Arsitektur Lengkap
+- **[Main README](../README.md)** - Informasi root proyek
+- **[Changelog](../CHANGELOG.md)** - Riwayat perubahan
 
 ---
 
-**Version**: 2.0.2
+**Version**: 2.1
 **Last Updated**: 2024-03-26
 **Need Help?** Check [Troubleshooting](#troubleshooting) atau [Main Documentation](../README.md)

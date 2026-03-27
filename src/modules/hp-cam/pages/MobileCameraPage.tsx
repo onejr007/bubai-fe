@@ -1,7 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from '@core/Router';
 import { hpCamSessionService } from '@/services/hpCamSession';
-import { WebRTCPeer } from '../utils/webrtcPeer';
+import { 
+  EnhancedWebRTCPeer, 
+  getOptimalVideoConstraints, 
+  getFallbackVideoConstraints, 
+  getMinimalVideoConstraints 
+} from '../utils/enhancedWebrtcPeer';
 
 export default function MobileCameraPage() {
   const params = useParams();
@@ -9,13 +14,21 @@ export default function MobileCameraPage() {
   const [status, setStatus] = useState<string>('Initializing...');
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string>('');
+  const [videoQuality, setVideoQuality] = useState<string>('');
   const streamRef = useRef<MediaStream | null>(null);
-  const webrtcRef = useRef<WebRTCPeer | null>(null);
-  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const webrtcRef = useRef<EnhancedWebRTCPeer | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const isInitializingRef = useRef(false);
+  const isJoinedRef = useRef(false);
 
   useEffect(() => {
     if (!sessionId) {
       setError('Session ID tidak ditemukan di URL');
+      return;
+    }
+
+    if (isInitializingRef.current || isJoinedRef.current) {
+      console.log('Skipping redundant initialization for session:', sessionId);
       return;
     }
 
@@ -27,14 +40,20 @@ export default function MobileCameraPage() {
   }, [sessionId]);
 
   const initializeSession = async () => {
+    if (isInitializingRef.current) return;
+    isInitializingRef.current = true;
+    
     try {
+      console.log('🚀 Initializing mobile session:', sessionId);
       setStatus('Checking session...');
       
       // Check if session exists on backend
       const session = await hpCamSessionService.getSessionStatus(sessionId);
+      console.log('📦 Session status received:', session.status);
       
       if (session.status === 'ended') {
         setError('Session sudah berakhir');
+        isInitializingRef.current = false;
         return;
       }
       
@@ -43,19 +62,29 @@ export default function MobileCameraPage() {
       
       // Join session (pair with PC)
       setStatus('Pairing with PC...');
-      await hpCamSessionService.joinSession(session.sessionId, deviceId);
+      console.log('🔗 Sending join request...');
+      await hpCamSessionService.joinSession({ 
+        sessionId: session.sessionId, 
+        deviceId 
+      });
       
+      isJoinedRef.current = true;
       setStatus('Paired! Requesting camera...');
+      console.log('✅ Paired successfully!');
       
       // Request camera permission
       await requestCameraPermission();
       
     } catch (error: any) {
-      console.error('Failed to initialize session:', error);
+      console.error('❌ Failed to initialize session:', error);
       setError(error.message || 'Failed to connect to session');
       setStatus('Error');
+    } finally {
+      isInitializingRef.current = false;
     }
   };
+
+  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const requestCameraPermission = async () => {
     setStatus('Meminta izin kamera...');
@@ -65,16 +94,49 @@ export default function MobileCameraPage() {
         throw new Error('Browser tidak support camera API. Gunakan Chrome atau Safari terbaru.');
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { 
-          facingMode: 'environment',
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
-        audio: false
-      });
+      // Try optimal constraints first
+      let stream: MediaStream | null = null;
+      let quality = '';
+
+      try {
+        console.log('📹 Trying optimal video constraints (1080p)...');
+        const constraints = getOptimalVideoConstraints(true);
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        quality = 'Full HD (1080p)';
+        console.log('✅ Got optimal quality stream');
+      } catch (err) {
+        console.warn('⚠️ Optimal constraints failed, trying fallback (720p)...');
+        try {
+          const constraints = getFallbackVideoConstraints();
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          quality = 'HD (720p)';
+          console.log('✅ Got fallback quality stream');
+        } catch (err2) {
+          console.warn('⚠️ Fallback constraints failed, trying minimal...');
+          const constraints = getMinimalVideoConstraints();
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          quality = 'Standard';
+          console.log('✅ Got minimal quality stream');
+        }
+      }
+
+      if (!stream) {
+        throw new Error('Failed to get camera stream');
+      }
 
       streamRef.current = stream;
+      
+      // Display video quality info
+      const videoTrack = stream.getVideoTracks()[0];
+      const settings = videoTrack.getSettings();
+      const actualQuality = `${settings.width}x${settings.height} @ ${settings.frameRate}fps`;
+      setVideoQuality(`${quality} (${actualQuality})`);
+      console.log('📊 Video settings:', settings);
+      
+      // Show preview on mobile
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
       
       setStatus('Kamera disetujui, memulai streaming ke PC...');
       setIsStreaming(true);
@@ -94,10 +156,6 @@ export default function MobileCameraPage() {
         errorMessage = 'Kamera tidak ditemukan. Pastikan device memiliki kamera.';
       } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
         errorMessage = 'Kamera sedang digunakan aplikasi lain. Tutup aplikasi lain dan coba lagi.';
-      } else if (err.name === 'OverconstrainedError') {
-        errorMessage = 'Kamera tidak support resolusi yang diminta. Mencoba dengan resolusi default...';
-        retryWithLowerConstraints();
-        return;
       } else if (err.message) {
         errorMessage = err.message;
       }
@@ -120,49 +178,32 @@ export default function MobileCameraPage() {
     }, 3000);
   };
 
-  const retryWithLowerConstraints = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: false
-      });
 
-      streamRef.current = stream;
-      
-      setStatus('Kamera disetujui (resolusi default), streaming ke PC...');
-      setIsStreaming(true);
-      setError('');
-      
-      await startWebRTC(stream);
-      startHeartbeat();
-
-    } catch (err: any) {
-      setError(`Gagal mengakses kamera: ${err.message || 'Unknown error'}`);
-      setStatus('Error');
-    }
-  };
 
   const startWebRTC = async (stream: MediaStream) => {
     try {
-      webrtcRef.current = new WebRTCPeer(
+      console.log('🚀 Starting Enhanced WebRTC...');
+      
+      webrtcRef.current = new EnhancedWebRTCPeer(
         sessionId!,
-        true,
-        undefined,
+        true, // isMobile
+        undefined, // onRemoteStream (mobile doesn't receive stream)
         (state) => {
+          console.log('🔗 Connection state changed:', state);
           if (state === 'connected') {
-            setStatus('Streaming aktif ke PC');
+            setStatus('✅ Streaming aktif ke PC');
           } else if (state === 'disconnected' || state === 'failed') {
-            setStatus('Koneksi terputus');
+            setStatus('⚠️ Koneksi terputus');
             setIsStreaming(false);
           }
         }
       );
 
       await webrtcRef.current.initialize(stream);
-      await webrtcRef.current.createOffer();
       
-      setStatus('Streaming aktif ke PC');
+      setStatus('📡 Menunggu koneksi dari PC...');
     } catch (err: any) {
+      console.error('❌ WebRTC initialization failed:', err);
       setError(`Gagal memulai streaming: ${err.message}`);
       setStatus('Error');
     }
@@ -248,9 +289,31 @@ export default function MobileCameraPage() {
               <h2 style={{ fontSize: '1.75rem', fontWeight: '700', color: '#1e293b', marginBottom: '0.5rem' }}>
                 Streaming Aktif
               </h2>
-              <p style={{ color: '#64748b', fontSize: '0.95rem', marginBottom: '1.5rem' }}>
+              <p style={{ color: '#64748b', fontSize: '0.95rem', marginBottom: '1rem' }}>
                 Kamera HP Anda sedang streaming ke PC
               </p>
+
+              {/* Video Preview */}
+              {streamRef.current && (
+                <div style={{ marginBottom: '1.5rem', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}>
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    style={{ width: '100%', height: 'auto', display: 'block', maxHeight: '300px', objectFit: 'cover', background: '#000' }}
+                  />
+                </div>
+              )}
+
+              {videoQuality && (
+                <div style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)', padding: '0.75rem', borderRadius: '12px', marginBottom: '1.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '1rem' }}>📊</span>
+                    <span style={{ color: 'white', fontSize: '0.875rem', fontWeight: '600' }}>{videoQuality}</span>
+                  </div>
+                </div>
+              )}
               
               <div style={{ background: 'linear-gradient(135deg, #d1fae5, #a7f3d0)', padding: '1rem', borderRadius: '16px', marginBottom: '1.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
